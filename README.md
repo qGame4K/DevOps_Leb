@@ -1,1 +1,1 @@
-# devops-course-2026
+# DevOps_Lebedev_Ivan_ЭФБО-11-24
