@@ -33,5 +33,22 @@ check "Политика по умолчанию для входящего тра
 echo "[3] Учётные записи"
 awk -F: '$3>=1000 && $3<65534 {printf "    %s (uid=%s)\n",$1,$3}' /etc/passwd
 
+echo "[4] Веб-сервер"
+check "Служба nginx активна" "active" "$(systemctl is-active nginx)"
+if sudo nginx -t >/dev/null 2>&1; then
+    echo "  [OK]   Конфигурация nginx синтаксически корректна"; ((PASS++))
+else
+    echo "  [FAIL] Конфигурация nginx содержит ошибку"; ((FAIL++))
+fi
+CERT_DAYS="${CERT_DAYS:-30}"
+if sudo openssl x509 -checkend $((CERT_DAYS*86400)) -noout -in /etc/ssl/certs/devops.crt >/dev/null 2>&1; then
+    echo "  [OK]   Сертификат действителен ещё не менее $CERT_DAYS дней"; ((PASS++))
+else
+    echo "  [FAIL] Сертификат истекает ранее чем через $CERT_DAYS дней"; ((FAIL++))
+fi
+WORLD_WRITABLE="$(find /var/www/devops-site -perm -o+w 2>/dev/null | wc -l | tr -d ' ')"
+check "Файлов, доступных для записи всем, нет" "0" "$WORLD_WRITABLE"
+check "Права закрытого ключа TLS" "600" "$(sudo stat -c '%a' /etc/ssl/private/devops.key)"
+
 echo "Пройдено: $PASS, не пройдено: $FAIL"
 [[ $FAIL -eq 0 ]] && exit 0 || exit 1

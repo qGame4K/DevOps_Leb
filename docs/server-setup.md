@@ -114,3 +114,35 @@ ClientAliveCountMax 2
 | 02-keys-configured | после создания учётной записи devops и настройки доступа по ключу |
 | 03-ssh-hardened | после усиления защиты службы SSH |
 | 04-nginx-https | после публикации ресурса по HTTPS (практическая работа № 6) |
+
+## 8. Веб-сервер
+
+| Параметр | Значение |
+|---|---|
+| Пакет | nginx (репозиторий дистрибутива), версия 1.24.0 |
+| Конфигурация ресурса | `/etc/nginx/sites-available/devops-site`, символическая ссылка в `sites-enabled/` |
+| Стандартный ресурс | отключён удалением ссылки `/etc/nginx/sites-enabled/default` |
+| Каталог ресурса | `/var/www/devops-site`, владелец `devops:devops`, права 755 |
+| Файлы ресурса | права 644, владелец `devops:devops` |
+| Сертификат | `/etc/ssl/certs/devops.crt`, права 644, владелец root |
+| Закрытый ключ | `/etc/ssl/private/devops.key`, права 600, владелец root |
+| Срок действия сертификата | 365 дней с момента выпуска |
+| Журналы | `/var/log/nginx/devops-site.access.log`, `devops-site.error.log` |
+
+Команда формирования сертификата:
+
+```bash
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout /etc/ssl/private/devops.key \
+  -out /etc/ssl/certs/devops.crt \
+  -subj "/CN=devops.local" \
+  -addext "subjectAltName=DNS:devops.local"
+```
+
+Конфигурация ресурса состоит из двух блоков `server`: первый принимает запросы на
+порту 80 и возвращает `301` с перенаправлением на HTTPS, второй обслуживает ресурс
+на порту 443 с протоколами TLSv1.2 и TLSv1.3. Применение изменений выполняется
+последовательностью `sudo nginx -t && sudo systemctl reload nginx`.
+
+Доставка содержимого выполняется с хостовой системы сценарием `scripts/deploy.sh`,
+использующим `rsync -avz --delete --chmod=D755,F644`.
