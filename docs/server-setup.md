@@ -146,3 +146,41 @@ sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 
 Доставка содержимого выполняется с хостовой системы сценарием `scripts/deploy.sh`,
 использующим `rsync -avz --delete --chmod=D755,F644`.
+
+## 9. Контейнеризация
+
+| Параметр | Значение |
+|---|---|
+| Docker Engine | установлен из официального репозитория download.docker.com, версия 29.9.1 |
+| Плагин Compose | docker-compose-plugin, версия v5.6.0 |
+| Участники группы docker | devops (учётная запись имеет право sudo) |
+| Проект на сервере | `/home/devops/app` (доставляется rsync из каталога `app/` репозитория) |
+| Файл секретов | `/home/devops/app/.env`, права 600, владелец devops; в репозиторий не попадает |
+| Шаблон секретов | `app/.env.example` — только имена переменных и заглушки |
+| Публикуемые порты | приложение 127.0.0.1:5000 → контейнер 5000; порт СУБД 5432 не публикуется |
+| Именованный том | `app_db_data` → `/var/lib/postgresql/data` контейнера СУБД |
+| Сеть проекта | `app_backend`, тип bridge; сервисы разрешаются по именам `app` и `db` |
+| Образ приложения | `devops-app:1.0`, базовый `python:3.12-slim`, процесс от пользователя `app` (uid 999) |
+| Образ СУБД | `postgres:16-alpine` (основная версия зафиксирована тегом) |
+
+Порядок восстановления: доставить каталог `app/` командой
+`rsync -avz --delete --exclude=.env app/ devops:app/`, на сервере создать `.env`
+из `.env.example` со случайным паролем и правами 600, затем выполнить
+`docker compose up -d --build` в каталоге `~/app`.
+
+Обратный прокси-сервер. В блок HTTPS файла `/etc/nginx/sites-available/devops-site`
+добавлено расположение:
+
+```nginx
+    location /app/ {
+        proxy_pass http://127.0.0.1:5000/;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+```
+
+Завершающий символ `/` в `proxy_pass` заменяет префикс `/app/` на `/`: запрос
+`/app/health` передаётся приложению как `/health`. Статический ресурс по адресу
+`https://devops.local/` сохранён.
