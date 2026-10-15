@@ -50,5 +50,13 @@ WORLD_WRITABLE="$(find /var/www/devops-site -perm -o+w 2>/dev/null | wc -l | tr 
 check "Файлов, доступных для записи всем, нет" "0" "$WORLD_WRITABLE"
 check "Права закрытого ключа TLS" "600" "$(sudo stat -c '%a' /etc/ssl/private/devops.key)"
 
+echo "[5] Контейнеризация"
+check "Служба docker активна" "active" "$(systemctl is-active docker)"
+check "Контейнер СУБД в состоянии healthy" "healthy" \
+      "$(docker inspect -f '{{.State.Health.Status}}' app-db-1 2>/dev/null)"
+EXPOSED="$(ss -tln | awk '$4 ~ /:(5000|5432)$/ && $4 !~ /^127\.0\.0\.1:/ {print $4}' | wc -l | tr -d ' ')"
+check "Порты 5000 и 5432 не опубликованы вне 127.0.0.1" "0" "$EXPOSED"
+check "Права файла ~/app/.env" "600" "$(stat -c '%a' "$HOME/app/.env" 2>/dev/null)"
+
 echo "Пройдено: $PASS, не пройдено: $FAIL"
 [[ $FAIL -eq 0 ]] && exit 0 || exit 1
