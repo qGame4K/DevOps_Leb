@@ -184,3 +184,51 @@ sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 Завершающий символ `/` в `proxy_pass` заменяет префикс `/app/` на `/`: запрос
 `/app/health` передаётся приложению как `/health`. Статический ресурс по адресу
 `https://devops.local/` сохранён.
+
+## 10. Ansible
+
+Проект находится в `ansible/`; управляющий узел — macOS, управляемый —
+изолированная Ubuntu 24.04 ARM64 VM `devops-pr11` (Lima), 192.168.64.5:22.
+Исходная VM прошлых работ сохранена. ARM64 учтена в выборе Docker-репозитория
+и GitHub runner для сборки образа. Служебная учётная запись Lima сохранена
+в AllowUsers для резервного управления VM.
+
+`inventory/bootstrap.ini` использует `student` с уже установленным открытым
+ключом (разрешённый вариант bootstrap без sshpass), sudo первоначально требует
+пароль. `inventory/prod.ini` использует `devops` по ключу `~/.ssh/devops_vm`,
+с неинтерактивным sudo. Пароли и закрытый ключ в репозитории не хранятся.
+Ключ хоста проверяется, `host_key_checking=True`; `force_handlers=True`.
+
+Роли:
+
+- `base`: зависимости, официальный Docker CE, служба Docker; архитектура arm64/amd64;
+- `ssh`: devops, открытый ключ, sudoers с visudo, SSH hardening с sshd -t, UFW 22/80;
+- `nginx`: шаблон reverse proxy, отключение default site, проверка nginx -t перед reload;
+- `app`: pull проверенного SHA до изменения контейнера, запуск и health-check.
+
+Образ: `ghcr.io/qgame4k/devops-ci-app`.
+Проверенный SHA: `dd36059fb69550b5511bfdce547157ec562aace9`.
+Контейнер `devops-ci-app` слушает 5000, опубликован только на 127.0.0.1:5000.
+Nginx доступен на 80. Health: `http://192.168.64.5/health`.
+
+На управляющем узле используются ansible-core 2.16.14 и коллекции из requirements.yml.
+При установке коллекций в нестандартный каталог задаётся ANSIBLE_COLLECTIONS_PATH.
+
+```sh
+ansible-galaxy collection install -r ansible/requirements.yml
+cd ansible
+ansible-playbook -i inventory/bootstrap.ini site.yml --syntax-check
+ansible-playbook -i inventory/bootstrap.ini site.yml --ask-become-pass
+ansible-playbook site.yml
+ansible-playbook verify.yml
+curl --fail http://192.168.64.5/health
+```
+
+Повторный `site.yml` должен завершаться с `changed=0, failed=0`.
+`verify.yml` только читает состояние и падает при остановленном контейнере.
+После ручного drift состояние восстанавливается командой `ansible-playbook site.yml`.
+Новый тег сначала загружается; при ошибке pull работающий контейнер не изменяется.
+
+После handlers в `site.yml` выполняется дополнительная проверка `/health` через
+Nginx с повторами. Она учитывает короткий переходный период graceful reload и
+подтверждает готовность всей цепочки перед завершением play.
