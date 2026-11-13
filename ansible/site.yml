@@ -7,3 +7,16 @@
     - ssh
     - nginx
     - app
+  post_tasks:
+    - name: Apply pending service handlers before final check
+      ansible.builtin.meta: flush_handlers
+    - name: Wait for reverse proxy health
+      ansible.builtin.uri:
+        url: http://127.0.0.1/health
+        return_content: true
+      register: proxy_health
+      retries: 10
+      delay: 1
+      until: >-
+        (proxy_health.status | default(-1)) == 200 and
+        (proxy_health.json | default({})).get('status') == 'ok'
